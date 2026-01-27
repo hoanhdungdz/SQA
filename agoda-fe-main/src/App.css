@@ -1,0 +1,505 @@
+.ant-ribbon > .ant-ribbon-corner {
+    border: 3px solid;
+    height: 4px;
+    width: 4px;
+}
+
+.banner-home .ant-tabs > .ant-tabs-nav {
+    background-color: white;
+    padding: 0 64px;
+    margin-bottom: -24px;
+    z-index: 1;
+    box-shadow: rgba(0, 0, 0, 0.2) 0px 1px 6px 2px;
+    border-radius: 8px;
+    width: 950px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.banner-home .ant-tabs-content-holder {
+    background-color: #f8f7f9;
+    padding: 32px 48px 48px;
+    box-shadow: rgba(0, 0, 0, 0.2) 0px 2px 8px 3px;
+    border-radius: 16px;
+    width: 1124px;
+}
+
+.banner-home .ant-tabs .ant-tabs-nav .ant-tabs-nav-wrap {
+    overflow: unset;
+}
+
+.tab-profile-container .ant-tabs-nav {
+    margin-bottom: 8px;
+}
+
+.tab-profile-container .ant-tabs-nav-wrap {
+    justify-content: center;
+    background-color: white;
+}
+
+.tab-profile-container .ant-tabs-nav-wrap .ant-tabs-nav-list {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto auto auto;
+}
+
+.tab-profile-container .ant-tabs-nav-wrap .ant-tabs-nav-list .ant-tabs-tab {
+    justify-content: center;
+}
+
+.tab-activity-container .ant-tabs-nav-wrap {
+    justify-content: center;
+}
+
+.tab-activity-container .ant-tabs-nav {
+    box-shadow: 0px 1px 3px 0px rgba(4, 7, 10, 0.16);
+}
+
+.swiper > .swiper-pagination {
+    position: static;
+    margin-top: 16px;
+}
+
+.swiper > .swiper-pagination > .swiper-pagination-bullet {
+    width: 12px;
+    height: 12px;
+}
+
+.ant-collapse .ant-collapse-item .ant-collapse-header {
+    padding: 0;
+}
+
+.ant-collapse
+    .ant-collapse-item
+    .ant-collapse-header
+    .ant-collapse-header-text {
+    order: 1;
+}
+
+.ant-collapse
+    .ant-collapse-item
+    .ant-collapse-header
+    .ant-collapse-expand-icon {
+    order: 2;
+    margin-top: 3px;
+    padding-right: 0;
+}
+
+.ant-collapse
+    .ant-collapse-item
+    .ant-collapse-content
+    .ant-collapse-content-box {
+    padding: 0;
+    margin-top: 16px;
+}
+
+.booking-info-accordion .ant-collapse-item {
+    border-bottom: 1px solid #e5e7eb !important;
+}
+
+.booking-info-accordion .ant-collapse-header {
+    padding: 16px 0 !important;
+    align-items: center !important;
+}
+
+.booking-info-accordion .ant-collapse-content-box {
+    padding: 0 !important;
+}
+
+.booking-info-accordion .ant-collapse-item:last-child {
+    border-bottom: none !important;
+}
+
+.booking-info-accordion .ant-collapse-expand-icon {
+    padding-left: 12px !important;
+}
+
+/* Styling for HTML content from API */
+.markdown-container {
+    font-family: inherit;
+    line-height: 1.6;
+    color: #333;
+}
+
+/* Headings */
+.markdown-container h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 1.5rem 0 1rem;
+    color: #000;
+    line-height: 1.2;
+}
+
+.markdown-container h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 1.25rem 0 0.75rem;
+    color: #111;
+    line-height: 1.3;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 0.5rem;
+}
+
+.markdown-container h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 1rem 0 0.5rem;
+    color: #222;
+}
+
+.markdown-container h4,
+.markdown-container h5,
+.markdown-container h6 {
+    font-weight: 600;
+    margin: 0.75rem 0 0.5rem;
+    color: #333;
+}
+
+/* Paragraphs */
+.markdown-container p {
+    margin: 0.75rem 0;
+    line-height: 1.7;
+    font-size: 1rem;
+}
+
+.markdown-container p:first-child {
+    margin-top: 0;
+}
+
+/* Links */
+.markdown-container a {
+    color: #0066cc;
+    text-decoration: none;
+    transition: color 0.2s ease;
+    font-weight: 500;
+}
+
+.markdown-container a:hover {
+    color: #0052a3;
+    text-decoration: underline;
+}
+
+/* Lists */
+.markdown-container ul,
+.markdown-container ol {
+    margin: 1rem 0;
+    padding-left: 2rem;
+}
+
+.markdown-container ul {
+    list-style-type: disc;
+}
+
+.markdown-container ol {
+    list-style-type: decimal;
+}
+
+.markdown-container ul ul,
+.markdown-container ol ol,
+.markdown-container ul ol,
+.markdown-container ol ul {
+    margin: 0.5rem 0;
+}
+
+.markdown-container li {
+    margin: 0.5rem 0;
+    line-height: 1.6;
+}
+
+/* Images */
+.markdown-container img {
+    max-width: 100%;
+    height: auto;
+    margin: 1rem 0;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    display: block;
+}
+
+/* Blockquote */
+.markdown-container blockquote {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    padding-left: 1.5rem;
+    border-left: 4px solid #0066cc;
+    background-color: #f0f7ff;
+    font-style: italic;
+    color: #555;
+}
+
+.markdown-container blockquote p {
+    margin: 0;
+}
+
+/* Code and Pre */
+.markdown-container code {
+    background-color: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "Courier New", monospace;
+    font-size: 0.9em;
+    color: #d73a49;
+}
+
+.markdown-container pre {
+    background-color: #282c34;
+    color: #abb2bf;
+    padding: 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 1rem 0;
+    font-family: "Courier New", monospace;
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+
+.markdown-container pre code {
+    background-color: transparent;
+    color: inherit;
+    padding: 0;
+}
+
+/* Tables */
+.markdown-container table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.markdown-container th {
+    background-color: #0066cc;
+    color: white;
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+}
+
+.markdown-container td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.markdown-container tr:hover {
+    background-color: #f9fafb;
+}
+
+.markdown-container tr:last-child td {
+    border-bottom: none;
+}
+
+/* Horizontal Rule */
+.markdown-container hr {
+    margin: 2rem 0;
+    border: none;
+    border-top: 2px solid #e5e7eb;
+}
+
+/* Strong and Emphasis */
+.markdown-container strong,
+.markdown-container b {
+    font-weight: 700;
+    color: #000;
+}
+
+.markdown-container em,
+.markdown-container i {
+    font-style: italic;
+}
+
+/* Definition Lists */
+.markdown-container dl {
+    margin: 1rem 0;
+}
+
+.markdown-container dt {
+    font-weight: 600;
+    margin-top: 0.5rem;
+    color: #222;
+}
+
+.markdown-container dd {
+    margin-left: 2rem;
+    margin-bottom: 0.5rem;
+    color: #555;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .markdown-container h1 {
+        font-size: 1.5rem;
+    }
+
+    .markdown-container h2 {
+        font-size: 1.25rem;
+    }
+
+    .markdown-container h3 {
+        font-size: 1.1rem;
+    }
+
+    .markdown-container ul,
+    .markdown-container ol {
+        padding-left: 1.5rem;
+    }
+
+    .markdown-container table {
+        font-size: 0.9em;
+    }
+
+    .markdown-container th,
+    .markdown-container td {
+        padding: 0.5rem;
+    }
+}
+
+.navigation-bar.isSticky {
+    left: 0;
+    right: 0;
+    margin: 0;
+    max-width: unset;
+    box-shadow: 0 3px 6px 0 rgba(0, 0, 0, 0.3);
+}
+
+.ant-float-btn-group-wrap {
+    right: 0;
+}
+
+.ant-float-btn-circle {
+    height: 60px;
+    width: 60px;
+}
+.ant-float-btn-circle
+    .ant-float-btn-body
+    .ant-float-btn-content
+    .ant-float-btn-icon {
+    width: 100%;
+}
+
+.chatbot-markdown {
+    font-size: 14.5px;
+    line-height: 1.65;
+    word-wrap: break-word;
+}
+
+/* ===== Paragraph ===== */
+.chatbot-markdown p {
+    margin: 0.5em 0;
+}
+
+/* ===== Headings ===== */
+.chatbot-markdown h1,
+.chatbot-markdown h2,
+.chatbot-markdown h3 {
+    font-weight: 600;
+    margin: 1em 0 0.5em;
+}
+
+.chatbot-markdown h1 {
+    font-size: 1.4em;
+}
+.chatbot-markdown h2 {
+    font-size: 1.25em;
+}
+.chatbot-markdown h3 {
+    font-size: 1.1em;
+}
+
+/* ===== Lists ===== */
+.chatbot-markdown ul,
+.chatbot-markdown ol {
+    padding-left: 1.25em;
+    margin: 0.5em 0;
+}
+
+.chatbot-markdown li {
+    margin: 0.25em 0;
+}
+
+/* ===== Bold & Italic ===== */
+.chatbot-markdown strong {
+    font-weight: 600;
+}
+
+.chatbot-markdown em {
+    font-style: italic;
+}
+
+/* ===== Links ===== */
+.chatbot-markdown a {
+    color: #2563eb; /* blue-600 */
+    text-decoration: underline;
+}
+
+.chatbot-markdown a:hover {
+    color: #1d4ed8;
+}
+
+/* ===== Inline code ===== */
+.chatbot-markdown code {
+    background: #f3f4f6;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ===== Code block ===== */
+.chatbot-markdown pre {
+    background: #111827; /* gray-900 */
+    color: #f9fafb;
+    padding: 12px 14px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 0.75em 0;
+}
+
+.chatbot-markdown pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: 0.85em;
+}
+
+/* ===== Tables ===== */
+.chatbot-markdown table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75em 0;
+    font-size: 13.5px;
+}
+
+.chatbot-markdown th,
+.chatbot-markdown td {
+    border: 1px solid #e5e7eb;
+    padding: 8px 10px;
+    text-align: left;
+}
+
+.chatbot-markdown th {
+    background: #f9fafb;
+    font-weight: 600;
+}
+
+.chatbot-markdown tr:nth-child(even) {
+    background: #f3f4f6;
+}
+
+/* ===== Blockquote ===== */
+.chatbot-markdown blockquote {
+    border-left: 4px solid #3b82f6;
+    padding-left: 12px;
+    margin: 0.75em 0;
+    color: #374151;
+    background: #eff6ff;
+    border-radius: 4px;
+}
+
+/* ===== Horizontal rule ===== */
+.chatbot-markdown hr {
+    border: none;
+    border-top: 1px solid #e5e7eb;
+    margin: 1em 0;
+}

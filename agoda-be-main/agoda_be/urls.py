@@ -1,0 +1,67 @@
+"""
+URL configuration for agoda_be project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/4.2/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+
+from django.contrib import admin
+from django.urls import path, include
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
+)
+from django.conf import settings
+from django.conf.urls.static import static
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("api/countries/", include("countries.urls")),
+    path("api/cities/", include("cities.urls")),
+    path("api/accounts/", include("accounts.urls")),
+    path("api/hotels/", include("hotels.urls")),
+    path("api/rooms/", include("rooms.urls")),
+    path("api/images/", include("images.urls")),
+    path("api/airports/", include("airports.urls")),
+    path("api/cars/", include("cars.urls")),
+    path("api/promotions/", include("promotions.urls")),
+    path("api/activities/", include("activities.urls")),
+    path("api/payments/", include("payments.urls")),
+    path("api/airlines/", include("airlines.urls")),
+    path("api/flights/", include("flights.urls")),
+    path("api/locations/", include("locations.urls")),
+    path("api/notifications/", include("notifications.urls")),
+    path("api/bookings/", include("bookings.urls")),
+    path("api/chats/", include("chats.urls")),
+    path("api/neighborhoods/", include("neighborhood.urls")),
+    path("api/quick-info/", include("quick_info.urls")),
+    path("api/faqs/", include("faqs.urls")),
+    path("api/travel-tips/", include("travel_tips.urls")),
+    path("api/accommodation-types/", include("accommodationtype.urls")),
+    path("api/travel-guides/", include("travelguide.urls")),
+    path("api/reviews/", include("reviews.urls")),
+    path("api/handbooks/", include("handbooks.urls")),
+    path("api/chatbots/", include("chatbots.urls")),
+    # Schema & Swagger UI
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path(
+        "api/docs/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
+    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

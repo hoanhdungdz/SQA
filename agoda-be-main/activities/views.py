@@ -1,0 +1,1535 @@
+# activities/views.py
+from rest_framework import generics
+from rest_framework.permissions import IsAuthenticated
+from .models import (
+    Activity,
+    ActivityImage,
+    ActivityPackage,
+    ActivityDate,
+    ActivityDateBookingDetail,
+    UserActivityInteraction,
+)
+from .serializers import (
+    ActivitySerializer,
+    ActivityDetailSerializer,
+    ActivityCreateSerializer,
+    ActivityImageSerializer,
+    ActivityPackageSerializer,
+    ActivityPackageCreateSerializer,
+    ActivityPackageListForActivityAndDateLaunchSerializer,
+    ActivityDateSerializer,
+    ActivityDateCreateSerializer,
+    ActivityDateBookingDetailSerializer,
+    ActivityDateBookingCreateSerializer,
+    UserActivityInteractionSerializer,
+    UserActivityInteractionCreateSerializer,
+)
+from rest_framework.pagination import PageNumberPagination
+from django.db.models import Q
+from rest_framework.response import Response
+import math
+from django.core.paginator import Paginator
+from django_filters.rest_framework import DjangoFilterBackend
+import os
+from django.conf import settings
+from rest_framework.views import APIView
+from rest_framework import status
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from django.db.models.functions import Coalesce
+from django.db.models import Q, OuterRef, Subquery, Value
+from django.db.models import Avg, F, FloatField, ExpressionWrapper, functions as Func
+from rest_framework.exceptions import AuthenticationFailed, ValidationError, NotFound
+from django.db.models import Sum
+from django.utils import timezone
+
+
+# Phân trang
+class ActivityPagination(PageNumberPagination):
+    page_size = 10  # Default value
+    currentPage = 1
+    filters = {}
+
+    def get_page_size(self, request):
+        # Lấy giá trị pageSize từ query string, nếu có
+        page_size = request.query_params.get("pageSize")
+        currentPage = request.query_params.get("current")
+        city_id = request.query_params.get("city_id")
+        event_organizer_id = request.query_params.get("event_organizer_id")
+
+        if city_id:
+            self.filters["city_id"] = city_id
+
+        if event_organizer_id:
+            self.filters["event_organizer_id"] = event_organizer_id
+
+        for field, value in request.query_params.items():
+            if field not in [
+                "current",
+                "pageSize",
+                "city_id",
+                "event_organizer_id",
+                "recommended",
+                "avg_star",
+                "min_avg_star",
+                "max_avg_star",
+                "min_avg_price",
+                "max_avg_price",
+                "sort",
+                "min_total_time",
+                "max_total_time",
+            ]:
+                # có thể dùng __icontains nếu muốn LIKE, hoặc để nguyên nếu so sánh bằng
+                self.filters[f"{field}__icontains"] = value
+            if field in ["avg_star"]:
+                try:
+                    int_value = int(value)
+                    self.filters["avg_star__gte"] = int_value
+                    self.filters["avg_star__lt"] = int_value + 1
+                except ValueError:
+                    pass
+
+            if field in ["min_avg_star", "max_avg_star"]:
+                min_avg_star = request.query_params.get("min_avg_star")
+                max_avg_star = request.query_params.get("max_avg_star")
+
+                if min_avg_star:
+                    try:
+                        self.filters["avg_star__gte"] = float(min_avg_star)
+                    except ValueError:
+                        pass
+
+                if max_avg_star:
+                    try:
+                        self.filters["avg_star__lte"] = float(max_avg_star)
+                    except ValueError:
+                        pass
+
+            if field in ["min_avg_price", "max_avg_price"]:
+                min_avg_price = request.query_params.get("min_avg_price")
+                max_avg_price = request.query_params.get("max_avg_price")
+
+                if min_avg_price:
+                    try:
+                        self.filters["avg_price__gte"] = float(min_avg_price)
+                    except ValueError:
+                        pass
+
+                if max_avg_price:
+                    try:
+                        self.filters["avg_price__lte"] = float(max_avg_price)
+                    except ValueError:
+                        pass
+
+            if field in ["min_total_time", "max_total_time"]:
+                min_total_time = request.query_params.get("min_total_time")
+                max_total_time = request.query_params.get("max_total_time")
+
+                if min_total_time:
+                    try:
+                        self.filters["total_time__gte"] = float(min_total_time)
+                    except ValueError:
+                        pass
+
+                if max_total_time:
+                    try:
+                        self.filters["total_time__lte"] = float(max_total_time)
+                    except ValueError:
+                        pass
+
+        # Nếu không có hoặc giá trị không hợp lệ, dùng giá trị mặc định
+        try:
+            self.page_size = int(page_size) if page_size is not None else self.page_size
+        except (ValueError, TypeError):
+            self.page_size = self.page_size
+
+        try:
+            self.currentPage = (
+                int(currentPage) if currentPage is not None else self.currentPage
+            )
+        except (ValueError, TypeError):
+            self.currentPage = self.currentPage
+
+        return self.page_size
+
+    def get_paginated_response(self, data):
+
+        total_count = Activity.objects.filter(**self.filters).count()
+        total_pages = math.ceil(total_count / self.page_size)
+
+        self.filters.clear()
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "Fetched activity successfully!",
+                "meta": {
+                    "totalItems": total_count,
+                    "currentPage": self.currentPage,
+                    "itemsPerPage": self.page_size,
+                    "totalPages": total_pages,
+                },
+                "data": data,
+            }
+        )
+
+
+# API GET danh sách activity (với phân trang)
+class ActivityListView(generics.ListAPIView):
+    queryset = Activity.objects.all()
+    serializer_class = ActivitySerializer
+    pagination_class = ActivityPagination
+    authentication_classes = [JWTAuthentication]
+    permission_classes = []  # Không cần kiểm tra quyền
+    filter_backends = [DjangoFilterBackend]
+
+    def get_queryset(self):
+        queryset = Activity.objects.all()
+        user = self.request.user
+
+        # Lọc dữ liệu theo query params
+        filter_params = self.request.query_params
+        query_filter = Q()
+
+        # lọc theo city_id (city_id là FK trong model Hotel)
+        city_id = filter_params.get("city_id")
+        if city_id:
+            query_filter &= Q(city_id=city_id)
+
+        event_organizer_id = filter_params.get("event_organizer_id")
+        if event_organizer_id:
+            query_filter &= Q(event_organizer_id=event_organizer_id)
+
+        for field, value in filter_params.items():
+            if field not in [
+                "pageSize",
+                "current",
+                "city_id",
+                "event_organizer_id",
+                "recommended",
+                "avg_star",
+                "min_avg_star",
+                "max_avg_star",
+                "min_avg_price",
+                "max_avg_price",
+                "sort",
+                "min_total_time",
+                "max_total_time",
+            ]:  # Bỏ qua các trường phân trang
+                query_filter &= Q(**{f"{field}__icontains": value})
+
+            if field in ["avg_star"]:
+                try:
+                    int_value = int(value)
+                    query_filter &= Q(**{f"{field}__gte": int_value}) & Q(
+                        **{f"{field}__lt": int_value + 1}
+                    )
+                except ValueError:
+                    pass  # bỏ qua nếu không phải số hợp lệ
+
+            if field in ["min_avg_star", "max_avg_star"]:
+                min_avg_star = filter_params.get("min_avg_star")
+                max_avg_star = filter_params.get("max_avg_star")
+
+                if min_avg_star:
+                    try:
+                        query_filter &= Q(avg_star__gte=float(min_avg_star))
+                    except ValueError:
+                        pass
+
+                if max_avg_star:
+                    try:
+                        query_filter &= Q(avg_star__lte=float(max_avg_star))
+                    except ValueError:
+                        pass
+
+            if field in ["min_avg_price", "max_avg_price"]:
+                min_avg_price = filter_params.get("min_avg_price")
+                max_avg_price = filter_params.get("max_avg_price")
+
+                if min_avg_price:
+                    try:
+                        query_filter &= Q(avg_price__gte=float(min_avg_price))
+                    except ValueError:
+                        pass
+
+                if max_avg_price:
+                    try:
+                        query_filter &= Q(avg_price__lte=float(max_avg_price))
+                    except ValueError:
+                        pass
+
+            if field in ["min_total_time", "max_total_time"]:
+                min_total_time = filter_params.get("min_total_time")
+                max_total_time = filter_params.get("max_total_time")
+
+                if min_total_time:
+                    try:
+                        query_filter &= Q(total_time__gte=float(min_total_time))
+                    except ValueError:
+                        pass
+
+                if max_total_time:
+                    try:
+                        query_filter &= Q(total_time__lte=float(max_total_time))
+                    except ValueError:
+                        pass
+
+        # Áp dụng lọc cho queryset
+        queryset = queryset.filter(query_filter)
+        sort_params = filter_params.get("sort")
+        order_fields = []
+
+        if sort_params:
+            # Ví dụ: sort=avg_price-desc,avg_star-asc
+            sort_list = sort_params.split(",")
+            for sort_item in sort_list:
+                try:
+                    field, direction = sort_item.split("-")
+                    if direction == "desc":
+                        order_fields.append(f"-{field}")
+                    else:
+                        order_fields.append(field)
+                except ValueError:
+                    continue  # bỏ qua format không hợp lệ
+
+        # Nếu có recommended thì sắp xếp ưu tiên theo weighted_score trước
+        recommended = filter_params.get("recommended")
+        if recommended:
+            if user and user.is_authenticated:
+                user_interaction = UserActivityInteraction.objects.filter(
+                    user=user, activity=OuterRef("pk")
+                ).values("weighted_score")[:1]
+
+                queryset = queryset.annotate(
+                    weighted_score_user=Coalesce(
+                        Subquery(user_interaction, output_field=FloatField()),
+                        Value(0.0),
+                    )
+                )
+
+                # Nếu có order_fields thì thêm sau weighted_score_user
+                queryset = queryset.order_by(
+                    "-weighted_score_user", "-total_weighted_score", *order_fields
+                )
+            else:
+                queryset = queryset.order_by("-total_weighted_score", *order_fields)
+        elif order_fields:
+            queryset = queryset.order_by(*order_fields)
+
+        # Lấy tham số 'current' từ query string để tính toán trang
+        current = self.request.query_params.get(
+            "current", 1
+        )  # Trang hiện tại, mặc định là trang 1
+        page_size = self.request.query_params.get(
+            "pageSize", 10
+        )  # Số phần tử mỗi trang, mặc định là 10
+
+        # Áp dụng phân trang
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(current)
+
+        return page
+
+
+class ActivityCreateView(generics.CreateAPIView):
+    queryset = Activity.objects.all()
+    serializer_class = ActivityCreateSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể tạo activity
+
+    def create(self, request, *args, **kwargs):
+        # Lấy dữ liệu từ request
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # Lưu activity mới
+            activity = serializer.save()
+
+            # 🔹 Đặt giá trung bình mặc định = 0 khi mới tạo
+            activity.avg_price = 0
+            activity.save(update_fields=["avg_price"])
+
+            # Kiểm tra xem có ảnh được gửi lên không
+            new_images = request.data.get("images", [])
+            for image in new_images:
+                # Thêm ảnh vào bảng ActivityImage
+                ActivityImage.objects.create(activity=activity, image=image)
+
+            return Response(
+                {
+                    "isSuccess": True,
+                    "message": "Activity created successfully",
+                    "data": ActivityCreateSerializer(activity).data,
+                },
+                status=200,
+            )
+
+        return Response(
+            {
+                "isSuccess": False,
+                "message": "Failed to create activity",
+                "data": serializer.errors,
+            },
+            status=400,
+        )
+
+
+class ActivityDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Activity.objects.all()
+    serializer_class = ActivityDetailSerializer
+    authentication_classes = []  # Bỏ qua tất cả các lớp xác thực
+    permission_classes = []  # Không cần kiểm tra quyền
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Override phương thức `retrieve` để trả về response chuẩn cho việc lấy thông tin chi tiết activity.
+        """
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "Activity details fetched successfully",
+                "data": serializer.data,  # Dữ liệu activity
+            }
+        )
+
+
+class ActivityUpdateView(generics.UpdateAPIView):
+    queryset = Activity.objects.all()
+    serializer_class = ActivityCreateSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể sửa activity
+
+    def update(self, request, *args, **kwargs):
+        activity = self.get_object()
+        serializer = self.get_serializer(activity, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            # Lưu các thay đổi của activity
+            updated_activity = serializer.save()
+
+            # Xóa ảnh cũ liên quan đến activity này
+            ActivityImage.objects.filter(activity=updated_activity).delete()
+
+            # Kiểm tra xem có ảnh mới không, nếu có thì thêm ảnh mới vào
+            new_images = request.data.get("images", [])
+            for image in new_images:
+                ActivityImage.objects.create(activity=updated_activity, image=image)
+
+            # ✅ Cập nhật avg_price dựa trên ActivityDate có ngày >= hiện tại
+            # Lấy thời điểm hiện tại theo timezone
+            now = timezone.now()
+            # Chuyển về 00:00:00 của hôm nay
+            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            activity_dates = ActivityDate.objects.filter(
+                activity_package__activity=updated_activity, date_launch__gte=today
+            )
+
+            if activity_dates.exists():
+                avg_price = (
+                    activity_dates.annotate(
+                        mean_price=(F("price_adult") + F("price_child")) / 2.0
+                    ).aggregate(avg_price=Avg("mean_price"))["avg_price"]
+                    or 0.0
+                )
+
+                updated_activity.avg_price = round(avg_price, 2)
+                updated_activity.save(update_fields=["avg_price"])
+
+            return Response(
+                {
+                    "isSuccess": True,
+                    "message": "Activity updated successfully",
+                    "data": ActivityCreateSerializer(updated_activity).data,
+                }
+            )
+
+        return Response(
+            {
+                "isSuccess": False,
+                "message": "Failed to update activity",
+                "data": serializer.errors,
+            },
+            status=400,
+        )
+
+
+class UserActivityInteractionDetailView(generics.RetrieveAPIView):
+    serializer_class = UserActivityInteractionSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = []
+
+    def get_object(self):
+        user = self.request.user
+        activity_id = self.kwargs.get("activity_id")
+
+        if not user or not user.is_authenticated:
+            raise AuthenticationFailed("User not authenticated")
+
+        if not activity_id:
+            raise ValidationError("Missing activity_id")
+
+        try:
+            return UserActivityInteraction.objects.get(
+                user=user, activity_id=activity_id
+            )
+        except UserActivityInteraction.DoesNotExist:
+            raise NotFound("UserActivityInteraction not found")
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "UserActivityInteraction details fetched successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class UserActivityInteractionUpsertView(generics.UpdateAPIView):
+    serializer_class = UserActivityInteractionCreateSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = []
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        activity_id = request.data.get("activity_id")
+
+        if not user or not user.is_authenticated:
+            return Response(
+                {"isSuccess": False, "message": "User not authenticated"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if not activity_id:
+            return Response(
+                {"isSuccess": False, "message": "Missing activity_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        interaction, created = UserActivityInteraction.objects.get_or_create(
+            user=user, activity_id=activity_id
+        )
+
+        # ✅ Cập nhật hành vi
+        interaction.click_count = int(request.data.get("click_count", 0))
+        interaction.positive_count = int(request.data.get("positive_count", 0))
+        interaction.negative_count = int(request.data.get("negative_count", 0))
+        interaction.neutral_count = int(request.data.get("neutral_count", 0))
+
+        # ✅ Cập nhật điểm người dùng
+        interaction.update_weighted_score()
+        interaction.save()
+
+        # ✅ Cập nhật thống kê tổng của khách sạn
+        activity = interaction.activity
+        totals = activity.user_activity_interactions.aggregate(
+            total_click=Sum("click_count"),
+            total_positive=Sum("positive_count"),
+            total_negative=Sum("negative_count"),
+            total_neutral=Sum("neutral_count"),
+        )
+        activity.total_click = totals["total_click"] or 0
+        activity.total_positive = totals["total_positive"] or 0
+        activity.total_negative = totals["total_negative"] or 0
+        activity.total_neutral = totals["total_neutral"] or 0
+
+        activity.save()
+        activity.update_total_weighted_score()
+
+        serializer = self.get_serializer(interaction)
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": (
+                    "Interaction created successfully!"
+                    if created
+                    else "Interaction updated successfully!"
+                ),
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ActivityDeleteView(generics.DestroyAPIView):
+    queryset = Activity.objects.all()
+    serializer_class = ActivityCreateSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể xóa activity
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "Activity deleted successfully",
+                "data": {},
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ActivityImageDeleteView(generics.DestroyAPIView):
+    queryset = ActivityImage.objects.all()
+    serializer_class = ActivityImageSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể xóa ảnh activity
+
+    def perform_destroy(self, instance):
+        """
+        Xóa hẳn ảnh activity khỏi cơ sở dữ liệu và hệ thống tệp.
+        """
+        # Lấy đường dẫn tệp ảnh
+        image_path = instance.image
+
+        # Nếu đường dẫn ảnh bắt đầu với "/media", ta loại bỏ nó để tránh trùng lặp
+        if image_path.startswith("/media"):
+            image_path = image_path.lstrip("/media")
+
+        full_image_path = os.path.join(settings.MEDIA_ROOT, image_path.lstrip("/"))
+
+        # Xóa ảnh khỏi hệ thống tệp (nếu tệp tồn tại)
+        if os.path.exists(full_image_path):
+            os.remove(full_image_path)
+
+        instance.delete()  # Xóa ảnh activity khỏi cơ sở dữ liệu
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "ActivityImage deleted successfully",
+                "data": {},
+            },
+            status=200,  # Trả về mã HTTP 200 khi xóa thành công
+        )
+
+
+# Phân trang
+class ActivityPackagePagination(PageNumberPagination):
+    page_size = 10  # Default value
+    currentPage = 1
+    filters = {}
+
+    def get_page_size(self, request):
+        # Lấy giá trị pageSize từ query string, nếu có
+        page_size = request.query_params.get("pageSize")
+        currentPage = request.query_params.get("current")
+
+        for field, value in request.query_params.items():
+            if field not in [
+                "current",
+                "pageSize",
+                "event_organizer_id",
+                "sort",
+                "activity_id",
+            ]:
+                # có thể dùng __icontains nếu muốn LIKE, hoặc để nguyên nếu so sánh bằng
+                self.filters[f"{field}__icontains"] = value
+
+            if field in ["event_organizer_id"]:
+                self.filters["activity__event_organizer_id"] = value
+
+            if field in ["activity_id"]:
+                self.filters["activity_id"] = value
+
+        # Nếu không có hoặc giá trị không hợp lệ, dùng giá trị mặc định
+        try:
+            self.page_size = int(page_size) if page_size is not None else self.page_size
+        except (ValueError, TypeError):
+            self.page_size = self.page_size
+
+        try:
+            self.currentPage = (
+                int(currentPage) if currentPage is not None else self.currentPage
+            )
+        except (ValueError, TypeError):
+            self.currentPage = self.currentPage
+
+        return self.page_size
+
+    def get_paginated_response(self, data):
+        total_count = ActivityPackage.objects.filter(**self.filters).count()
+        total_pages = math.ceil(total_count / self.page_size)
+
+        self.filters.clear()
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "Fetched activity package successfully!",
+                "meta": {
+                    "totalItems": total_count,
+                    "currentPage": self.currentPage,
+                    "itemsPerPage": self.page_size,
+                    "totalPages": total_pages,
+                },
+                "data": data,
+            }
+        )
+
+
+# API GET danh sách activity package (với phân trang)
+class ActivityPackageListView(generics.ListAPIView):
+    queryset = ActivityPackage.objects.all()
+    serializer_class = ActivityPackageSerializer
+    pagination_class = ActivityPackagePagination
+    authentication_classes = []  # Bỏ qua tất cả các lớp xác thực
+    permission_classes = []  # Không cần kiểm tra quyền
+    filter_backends = [DjangoFilterBackend]
+
+    def get_queryset(self):
+        queryset = ActivityPackage.objects.all()
+
+        # Lọc dữ liệu theo query params
+        filter_params = self.request.query_params
+        query_filter = Q()
+
+        for field, value in filter_params.items():
+            if field not in [
+                "pageSize",
+                "current",
+                "sort",
+                "event_organizer_id",
+                "activity_id",
+            ]:  # Bỏ qua các trường phân trang
+                query_filter &= Q(**{f"{field}__icontains": value})
+
+            # ✅ Nếu là event_organizer_id, lọc theo quan hệ ngược từ Activity
+            if field in ["event_organizer_id"]:
+                query_filter &= Q(activity__event_organizer_id=value)
+
+            if field in ["activity_id"]:
+                query_filter &= Q(activity_id=value)
+
+        # Áp dụng lọc cho queryset
+        queryset = queryset.filter(query_filter)
+
+        sort_params = filter_params.get("sort")
+        order_fields = []
+
+        if sort_params:
+            # Ví dụ: sort=avg_price-desc,avg_star-asc
+            sort_list = sort_params.split(",")
+            for sort_item in sort_list:
+                try:
+                    field, direction = sort_item.split("-")
+                    if direction == "desc":
+                        order_fields.append(f"-{field}")
+                    else:
+                        order_fields.append(field)
+                except ValueError:
+                    continue  # bỏ qua format không hợp lệ
+
+        queryset = queryset.order_by(*order_fields)
+
+        # Lấy tham số 'current' từ query string để tính toán trang
+        current = self.request.query_params.get(
+            "current", 1
+        )  # Trang hiện tại, mặc định là trang 1
+        page_size = self.request.query_params.get(
+            "pageSize", 10
+        )  # Số phần tử mỗi trang, mặc định là 10
+
+        # Áp dụng phân trang
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(current)
+
+        return page
+
+
+# API GET danh sách activity package dựa trên activity_id và date_launch (không phân trang)
+class ActivityPackageListForActivityAndDateLaunchView(generics.ListAPIView):
+    serializer_class = ActivityPackageListForActivityAndDateLaunchSerializer
+    authentication_classes = []  # Bỏ qua tất cả các lớp xác thực
+    permission_classes = []  # Không cần kiểm tra quyền
+
+    def get_queryset(self):
+        queryset = ActivityPackage.objects.all()
+        params = self.request.query_params
+
+        activity_id = params.get("activity_id")
+        date_launch = params.get("date_launch")
+        min_date_launch = params.get("min_date_launch")
+        max_date_launch = params.get("max_date_launch")
+
+        if activity_id:
+            queryset = queryset.filter(activity_id=activity_id)
+
+        if date_launch:
+            queryset = queryset.filter(activities_dates__date_launch=date_launch)
+
+        # 🔹 Lọc theo khoảng ngày (từ - đến)
+        if min_date_launch and max_date_launch:
+            queryset = queryset.filter(
+                activities_dates__date_launch__range=[min_date_launch, max_date_launch]
+            )
+        elif min_date_launch:
+            queryset = queryset.filter(
+                activities_dates__date_launch__gte=min_date_launch
+            )
+        elif max_date_launch:
+            queryset = queryset.filter(
+                activities_dates__date_launch__lte=max_date_launch
+            )
+
+        return queryset.distinct()  # Tránh trùng lặp do join nhiều bảng
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": (
+                    "Get activity package successfully!" if queryset else "No data"
+                ),
+                "data": serializer.data,
+            }
+        )
+
+
+# API GET chi tiết activity package
+class ActivityPackageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = ActivityPackage.objects.all()
+    serializer_class = ActivityPackageSerializer
+    authentication_classes = []  # Bỏ qua tất cả các lớp xác thực
+    permission_classes = []  # Không cần kiểm tra quyền
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Override phương thức `retrieve` để trả về response chuẩn cho việc lấy thông tin chi tiết activity package.
+        """
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "ActivityPackage details fetched successfully",
+                "data": serializer.data,  # Dữ liệu activity package
+            }
+        )
+
+
+# API POST tạo activity package
+class ActivityPackageCreateView(generics.CreateAPIView):
+    queryset = ActivityPackage.objects.all()
+    serializer_class = ActivityPackageCreateSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể tạo activity package
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            activity_package = serializer.save()
+            return Response(
+                {
+                    "isSuccess": True,
+                    "message": "ActivityPackage created successfully",
+                    "data": ActivityPackageCreateSerializer(activity_package).data,
+                },
+                status=200,
+            )
+
+        return Response(
+            {
+                "isSuccess": False,
+                "message": "Failed to create activity package",
+                "data": serializer.errors,
+            },
+            status=400,
+        )
+
+
+# API PUT hoặc PATCH để cập nhật activity package
+class ActivityPackageUpdateView(generics.UpdateAPIView):
+    queryset = ActivityPackage.objects.all()
+    serializer_class = ActivityPackageCreateSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể sửa activity package
+
+    def update(self, request, *args, **kwargs):
+        activity_package = self.get_object()
+        serializer = self.get_serializer(
+            activity_package, data=request.data, partial=True
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {
+                    "isSuccess": True,
+                    "message": "Activity package updated successfully",
+                    "data": serializer.data,
+                }
+            )
+
+        return Response(
+            {
+                "isSuccess": False,
+                "message": "Failed to update activity package",
+                "data": serializer.errors,
+            },
+            status=400,
+        )
+
+
+# API DELETE xóa activity package
+class ActivityPackageDeleteView(generics.DestroyAPIView):
+    queryset = ActivityPackage.objects.all()
+    serializer_class = ActivityPackageCreateSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể xóa activity package
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "ActivityPackage deleted successfully",
+                "data": {},
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# Phân trang
+class ActivityDatePagination(PageNumberPagination):
+    page_size = 10  # Default value
+    currentPage = 1
+    filters = {}
+
+    def get_page_size(self, request):
+        # Lấy giá trị pageSize từ query string, nếu có
+        page_size = request.query_params.get("pageSize")
+        currentPage = request.query_params.get("current")
+
+        for field, value in request.query_params.items():
+            if field not in [
+                "current",
+                "pageSize",
+                "event_organizer_id",
+                "sort",
+                "activity_id",
+                "activity_package_id",
+                "min_date_launch",
+                "max_date_launch",
+                "min_price_adult",
+                "max_price_adult",
+                "min_price_child",
+                "max_price_child",
+                "date_launch",
+                "min_max_participants",
+                "max_max_participants",
+                "min_participants_available",
+                "max_participants_available",
+            ]:
+                # có thể dùng __icontains nếu muốn LIKE, hoặc để nguyên nếu so sánh bằng
+                self.filters[f"{field}__icontains"] = value
+
+            if field in [
+                "event_organizer_id",
+            ]:
+                self.filters["activity_package__activity__event_organizer_id"] = value
+
+            if field in [
+                "activity_id",
+            ]:
+                self.filters["activity_package__activity_id"] = value
+
+            if field in [
+                "activity_package_id",
+            ]:
+                self.filters["activity_package_id"] = value
+
+            if field in [
+                "min_date_launch",
+            ]:
+                self.filters["date_launch__gte"] = value
+
+            if field in [
+                "max_date_launch",
+            ]:
+                self.filters["date_launch__lte"] = value
+            if field in [
+                "date_launch",
+            ]:
+                self.filters["date_launch__date"] = value
+            if field in [
+                "min_price_adult",
+            ]:
+                self.filters["price_adult__gte"] = value
+
+            if field in [
+                "max_price_adult",
+            ]:
+                self.filters["price_adult__lte"] = value
+            if field in [
+                "min_price_child",
+            ]:
+                self.filters["price_child__gte"] = value
+
+            if field in [
+                "max_price_child",
+            ]:
+                self.filters["price_child__lte"] = value
+            if field in [
+                "min_max_participants",
+            ]:
+                self.filters["max_participants__gte"] = value
+
+            if field in [
+                "max_max_participants",
+            ]:
+                self.filters["max_participants__lte"] = value
+            if field in [
+                "min_participants_available",
+            ]:
+                self.filters["participants_available__gte"] = value
+
+            if field in [
+                "max_participants_available",
+            ]:
+                self.filters["participants_available__lte"] = value
+
+        # Nếu không có hoặc giá trị không hợp lệ, dùng giá trị mặc định
+        try:
+            self.page_size = int(page_size) if page_size is not None else self.page_size
+        except (ValueError, TypeError):
+            self.page_size = self.page_size
+
+        try:
+            self.currentPage = (
+                int(currentPage) if currentPage is not None else self.currentPage
+            )
+        except (ValueError, TypeError):
+            self.currentPage = self.currentPage
+
+        return self.page_size
+
+    def get_paginated_response(self, data):
+        total_count = ActivityDate.objects.filter(**self.filters).count()
+        total_pages = math.ceil(total_count / self.page_size)
+
+        self.filters.clear()
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "Fetched activity date successfully!",
+                "meta": {
+                    "totalItems": total_count,
+                    "currentPage": self.currentPage,
+                    "itemsPerPage": self.page_size,
+                    "totalPages": total_pages,
+                },
+                "data": data,
+            }
+        )
+
+
+# API GET danh sách activity date (với phân trang)
+class ActivityDateListView(generics.ListAPIView):
+    queryset = ActivityDate.objects.all()
+    serializer_class = ActivityDateSerializer
+    pagination_class = ActivityDatePagination
+    authentication_classes = []  # Bỏ qua tất cả các lớp xác thực
+    permission_classes = []  # Không cần kiểm tra quyền
+    filter_backends = [DjangoFilterBackend]
+
+    def get_queryset(self):
+        queryset = ActivityDate.objects.all()
+
+        # Lọc dữ liệu theo query params
+        filter_params = self.request.query_params
+        query_filter = Q()
+
+        for field, value in filter_params.items():
+            if field not in [
+                "pageSize",
+                "current",
+                "event_organizer_id",
+                "activity_id",
+                "activity_package_id",
+                "sort",
+                "min_date_launch",
+                "max_date_launch",
+                "min_price_adult",
+                "max_price_adult",
+                "min_price_child",
+                "max_price_child",
+                "min_max_participants",
+                "max_max_participants",
+                "min_participants_available",
+                "max_participants_available",
+            ]:  # Bỏ qua các trường phân trang
+                query_filter &= Q(**{f"{field}__icontains": value})
+
+            if field in ["event_organizer_id"]:
+                query_filter &= Q(
+                    **{"activity_package__activity__event_organizer_id": value}
+                )
+
+            if field in ["activity_id"]:
+                query_filter &= Q(**{"activity_package__activity_id": value})
+
+            if field in ["activity_package_id"]:
+                query_filter &= Q(**{"activity_package_id": value})
+
+        min_date_launch = filter_params.get("min_date_launch")
+        max_date_launch = filter_params.get("max_date_launch")
+        date_launch = filter_params.get("date_launch")
+
+        if min_date_launch:
+            queryset = queryset.filter(date_launch__gte=min_date_launch)
+        if max_date_launch:
+            queryset = queryset.filter(date_launch__lte=max_date_launch)
+        if date_launch:
+            queryset = queryset.filter(date_launch__date=date_launch)
+
+        min_max_participants = filter_params.get("min_max_participants")
+        max_max_participants = filter_params.get("max_max_participants")
+        if min_max_participants:
+            queryset = queryset.filter(max_participants__gte=min_max_participants)
+        if max_max_participants:
+            queryset = queryset.filter(max_participants__lte=max_max_participants)
+
+        min_participants_available = filter_params.get("min_participants_available")
+        max_participants_available = filter_params.get("max_participants_available")
+        if min_participants_available:
+            queryset = queryset.filter(
+                participants_available__gte=min_participants_available
+            )
+        if max_participants_available:
+            queryset = queryset.filter(
+                participants_available__lte=max_participants_available
+            )
+
+        # Áp dụng lọc cho queryset
+        queryset = queryset.filter(query_filter)
+
+        sort_params = filter_params.get("sort")
+        order_fields = []
+
+        if sort_params:
+            # Ví dụ: sort=avg_price-desc,avg_star-asc
+            sort_list = sort_params.split(",")
+            for sort_item in sort_list:
+                try:
+                    field, direction = sort_item.split("-")
+                    if direction == "desc":
+                        order_fields.append(f"-{field}")
+                    else:
+                        order_fields.append(field)
+                except ValueError:
+                    continue  # bỏ qua format không hợp lệ
+
+        queryset = queryset.order_by(*order_fields)
+
+        # Lấy tham số 'current' từ query string để tính toán trang
+        current = self.request.query_params.get(
+            "current", 1
+        )  # Trang hiện tại, mặc định là trang 1
+        page_size = self.request.query_params.get(
+            "pageSize", 10
+        )  # Số phần tử mỗi trang, mặc định là 10
+
+        # Áp dụng phân trang
+        paginator = Paginator(queryset, page_size)
+        page = paginator.get_page(current)
+
+        return page
+
+
+# API GET chi tiết activity date
+class ActivityDateDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = ActivityDate.objects.all()
+    serializer_class = ActivityDateSerializer
+    authentication_classes = []  # Bỏ qua tất cả các lớp xác thực
+    permission_classes = []  # Không cần kiểm tra quyền
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Override phương thức `retrieve` để trả về response chuẩn cho việc lấy thông tin chi tiết activity date.
+        """
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "ActivityDate details fetched successfully",
+                "data": serializer.data,  # Dữ liệu activity date
+            }
+        )
+
+
+# API POST tạo activity date
+class ActivityDateCreateView(generics.CreateAPIView):
+    queryset = ActivityDate.objects.all()
+    serializer_class = ActivityDateCreateSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể tạo activity date
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            activity_date = serializer.save()
+            # ✅ Sau khi tạo ActivityDate -> cập nhật avg_price của Activity liên quan
+            activity = activity_date.activity_package.activity
+
+            # ✅ Lấy 00:00:00 của hôm nay (để tránh lệch giờ)
+            today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+            # ✅ Lấy tất cả các ActivityDate có ngày >= hôm nay của activity này
+            valid_dates = ActivityDate.objects.filter(
+                activity_package__activity=activity, date_launch__gte=today
+            ).values_list("price_adult", "price_child")
+
+            # ✅ Tính giá trung bình
+            prices = [(p_adult + p_child) / 2 for p_adult, p_child in valid_dates]
+            if prices:
+                avg_price = sum(prices) / len(prices)
+                activity.avg_price = avg_price
+                activity.save(update_fields=["avg_price"])
+
+            return Response(
+                {
+                    "isSuccess": True,
+                    "message": "ActivityDate created successfully",
+                    "data": ActivityDateCreateSerializer(activity_date).data,
+                },
+                status=200,
+            )
+
+        return Response(
+            {
+                "isSuccess": False,
+                "message": "Failed to create activity date",
+                "data": serializer.errors,
+            },
+            status=400,
+        )
+
+
+class ActivityDateBulkCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        activity_package_id = request.data.get("activity_package")
+        price_adult = request.data.get("price_adult")
+        price_child = request.data.get("price_child")
+        max_participants = request.data.get("max_participants")
+        participants_available = request.data.get("participants_available")
+        dates = request.data.get("dates", [])
+
+        if not activity_package_id or not dates:
+            return Response(
+                {
+                    "isSuccess": False,
+                    "message": "Missing required fields: activity_package or dates",
+                    "data": {},
+                },
+                status=400,
+            )
+
+        created_dates = []
+        for date_str in dates:
+            activity_date = ActivityDate.objects.create(
+                activity_package_id=activity_package_id,
+                price_adult=price_adult,
+                price_child=price_child,
+                max_participants=max_participants,
+                participants_available=participants_available,
+                date_launch=date_str,  # date_str phải đúng format datetime
+            )
+            created_dates.append(ActivityDateCreateSerializer(activity_date).data)
+
+        # ========================================
+        # 🔹 Cập nhật avg_price của Activity
+        # ========================================
+        try:
+            activity_package = ActivityPackage.objects.get(id=activity_package_id)
+            activity = activity_package.activity
+
+            # ✅ Lấy 00:00:00 của hôm nay (để tránh lệch giờ)
+            today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+            # Lấy tất cả ActivityDate thuộc về cùng Activity
+            all_dates = ActivityDate.objects.filter(
+                activity_package__activity=activity, date_launch__gte=today
+            )
+
+            # Tính giá trung bình (avg_price)
+            if all_dates.exists():
+                avg_price = (
+                    sum((d.price_adult + d.price_child) / 2 for d in all_dates)
+                    / all_dates.count()
+                )
+                activity.avg_price = avg_price
+                activity.save(update_fields=["avg_price"])
+        except ActivityPackage.DoesNotExist:
+            pass  # Trường hợp package không tồn tại, bỏ qua cập nhật
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": f"Created {len(created_dates)} ActivityDate(s) successfully",
+                "data": created_dates,
+            },
+            status=200,
+        )
+
+
+# API PUT hoặc PATCH để cập nhật activity date
+class ActivityDateUpdateView(generics.UpdateAPIView):
+    queryset = ActivityDate.objects.all()
+    serializer_class = ActivityDateCreateSerializer
+    permission_classes = [
+        IsAuthenticated
+    ]  # Chỉ người dùng đã đăng nhập mới có thể sửa activity date
+
+    def update(self, request, *args, **kwargs):
+        activity_date = self.get_object()
+        serializer = self.get_serializer(activity_date, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            activity_date_updated = serializer.save()
+
+            # ✅ Sau khi tạo ActivityDate -> cập nhật avg_price của Activity liên quan
+            activity = activity_date_updated.activity_package.activity
+
+            # ✅ Lấy 00:00:00 của hôm nay (để tránh lệch giờ)
+            today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+            # ✅ Lấy tất cả các ActivityDate có ngày >= hôm nay của activity này
+            valid_dates = ActivityDate.objects.filter(
+                activity_package__activity=activity, date_launch__gte=today
+            ).values_list("price_adult", "price_child")
+
+            # ✅ Tính giá trung bình
+            prices = [(p_adult + p_child) / 2 for p_adult, p_child in valid_dates]
+            if prices:
+                avg_price = sum(prices) / len(prices)
+                activity.avg_price = avg_price
+                activity.save(update_fields=["avg_price"])
+
+            return Response(
+                {
+                    "isSuccess": True,
+                    "message": "Activity date updated successfully",
+                    "data": serializer.data,
+                }
+            )
+
+        return Response(
+            {
+                "isSuccess": False,
+                "message": "Failed to update activity date",
+                "data": serializer.errors,
+            },
+            status=400,
+        )
+
+
+# API DELETE xóa activity date
+class ActivityDateDeleteView(generics.DestroyAPIView):
+    queryset = ActivityDate.objects.all()
+    serializer_class = ActivityDateCreateSerializer
+    permission_classes = [IsAuthenticated]
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        # 🔹 Lưu lại Activity liên quan trước khi xóa
+        activity = instance.activity_package.activity
+
+        self.perform_destroy(instance)
+
+        # 🔹 Cập nhật lại avg_price của Activity
+        today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Lấy tất cả ActivityDate còn lại (>= hôm nay)
+        remaining_dates = ActivityDate.objects.filter(
+            activity_package__activity=activity,
+            date_launch__gte=today,
+        )
+
+        if remaining_dates.exists():
+            avg_price = (
+                sum(
+                    ((d.price_adult or 0) + (d.price_child or 0)) / 2
+                    for d in remaining_dates
+                )
+                / remaining_dates.count()
+            )
+            activity.avg_price = float(avg_price)
+        else:
+            # Nếu không còn ActivityDate nào hợp lệ, đặt avg_price = 0
+            activity.avg_price = 0
+
+        activity.save(update_fields=["avg_price"])
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "ActivityDate deleted successfully",
+                "data": {},
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ActivityDateBulkDeleteView(APIView):
+    permission_classes = [IsAuthenticated]  # Bắt buộc user đăng nhập
+
+    def delete(self, request, *args, **kwargs):
+        ids = request.data.get("ids", [])
+
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {
+                    "isSuccess": False,
+                    "message": "Invalid or empty 'ids' list",
+                    "data": {},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Lấy tất cả các bản ghi cần xóa
+        dates_to_delete = ActivityDate.objects.filter(id__in=ids)
+        deleted_count = dates_to_delete.count()
+
+        if deleted_count == 0:
+            return Response(
+                {
+                    "isSuccess": False,
+                    "message": "No ActivityDate found for given ids",
+                    "data": {},
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Tìm các ActivityPackage chứa các ActivityDate này
+        packages_to_update = ActivityPackage.objects.filter(
+            activities_dates__in=dates_to_delete
+        )
+
+        # Tìm các Activity liên quan
+        activities_to_update = list(
+            Activity.objects.filter(
+                activities_packages__in=packages_to_update
+            ).distinct()
+        )
+
+        # Xóa các bản ghi
+        dates_to_delete.delete()
+
+        # ========================================
+        # 🔹 Cập nhật avg_price của các Activity liên quan
+        # ========================================
+        today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        for activity in activities_to_update:
+            all_dates = ActivityDate.objects.filter(
+                activity_package__activity=activity,
+                date_launch__gte=today,
+            )
+
+            if all_dates.exists():
+                avg_price = (
+                    sum(
+                        ((d.price_adult or 0) + (d.price_child or 0)) / 2
+                        for d in all_dates
+                    )
+                    / all_dates.count()
+                )
+                activity.avg_price = float(avg_price)
+            else:
+                activity.avg_price = 0
+
+            activity.save(update_fields=["avg_price"])
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": f"Deleted {deleted_count} ActivityDate(s) successfully",
+                "data": {"deleted_ids": ids},
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ActivityDateBookingDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = ActivityDateBookingDetail.objects.all()
+    serializer_class = ActivityDateBookingDetailSerializer
+    authentication_classes = []  # Bỏ qua tất cả các lớp xác thực
+    permission_classes = []  # Không cần kiểm tra quyền
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Override phương thức `retrieve` để trả về response chuẩn cho việc lấy thông tin chi tiết activity.
+        """
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+
+        return Response(
+            {
+                "isSuccess": True,
+                "message": "Activity details fetched successfully",
+                "data": serializer.data,  # Dữ liệu activity
+            }
+        )
+
+
+class ActivityDateBookingCreateView(generics.CreateAPIView):
+    queryset = ActivityDateBookingDetail.objects.all()
+    serializer_class = ActivityDateBookingCreateSerializer
+    authentication_classes = []  # Bỏ qua tất cả các lớp xác thực
+    permission_classes = []  # Không cần kiểm tra quyền
+
+    def create(self, request, *args, **kwargs):
+        # Lấy dữ liệu từ request
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # Lưu activity date booking mới
+            activity_date_booking = serializer.save()
+
+            return Response(
+                {
+                    "isSuccess": True,
+                    "message": "Activity date booking created successfully",
+                    "data": ActivityDateBookingCreateSerializer(
+                        activity_date_booking
+                    ).data,
+                },
+                status=200,
+            )
+
+        return Response(
+            {
+                "isSuccess": False,
+                "message": "Failed to create activity date booking",
+                "data": serializer.errors,
+            },
+            status=400,
+        )
